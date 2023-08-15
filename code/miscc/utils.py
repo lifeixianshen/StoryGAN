@@ -15,14 +15,12 @@ from sklearn.metrics import accuracy_score
 def KL_loss(mu, logvar):
     # -0.5 * sum(1 + log(sigma^2) - mu^2 - sigma^2)
     KLD_element = mu.pow(2).add_(logvar.exp()).mul_(-1).add_(1).add_(logvar)
-    KLD = torch.mean(KLD_element).mul_(-0.5)
-    return KLD
+    return torch.mean(KLD_element).mul_(-0.5)
 
 
 def compute_discriminator_loss(netD, real_imgs, fake_imgs,
                                real_labels, fake_labels, real_catelabels,
                                conditions, gpus):
-    ratio = 1.0
     cate_criterion =nn.MultiLabelSoftMarginLoss()
     criterion = nn.BCELoss()
     batch_size = real_imgs.size(0)
@@ -64,6 +62,7 @@ def compute_discriminator_loss(netD, real_imgs, fake_imgs,
     if netD.cate_classify is not None:
         cate_logits = nn.parallel.data_parallel(netD.cate_classify, real_features, gpus)
         cate_logits = cate_logits.squeeze()
+        ratio = 1.0
         errD = errD + ratio * cate_criterion(cate_logits, real_catelabels)
         acc = accuracy_score(real_catelabels.cpu().data.numpy().astype('int32'), 
             (cate_logits.cpu().data.numpy() > 0.5).astype('int32'))
@@ -71,7 +70,6 @@ def compute_discriminator_loss(netD, real_imgs, fake_imgs,
 
 
 def compute_generator_loss(netD, fake_imgs, real_labels, fake_catelabels, conditions, gpus):
-    ratio = 0.4
     criterion = nn.BCELoss()
     cate_criterion =nn.MultiLabelSoftMarginLoss()
     cond = conditions.detach()
@@ -90,6 +88,7 @@ def compute_generator_loss(netD, fake_imgs, real_labels, fake_catelabels, condit
     if netD.cate_classify is not None:
         cate_logits = nn.parallel.data_parallel(netD.cate_classify, fake_features, gpus)
         cate_logits = cate_logits.squeeze()
+        ratio = 0.4
         errD_fake = errD_fake + ratio * cate_criterion(cate_logits, fake_catelabels)
         acc = accuracy_score(fake_catelabels.cpu().data.numpy().astype('int32'), 
             (cate_logits.cpu().data.numpy() > 0.5).astype('int32'))
@@ -113,10 +112,10 @@ def weights_init(m):
 #############################
 def save_img_results(data_img, fake,epoch, image_dir):
     num = cfg.VIS_COUNT
-    fake = fake[0:num]
+    fake = fake[:num]
     # data_img is changed to [0,1]
     if data_img is not None:
-        data_img = data_img[0:num]
+        data_img = data_img[:num]
         vutils.save_image(
             data_img, '%s/real_samples_epoch_%03d.png' % 
             (image_dir, epoch), normalize=True)
@@ -138,16 +137,18 @@ def images_to_numpy(tensor):
     return generated.astype('uint8')
 
 def save_story_results(ground_truth, images, epoch, image_dir, video_len = 5, test = False, ):
-    all_images = []
-    for i in range(images.shape[0]):
-        all_images.append(vutils.make_grid(torch.transpose(images[i], 0,1), video_len))
+    all_images = [
+        vutils.make_grid(torch.transpose(images[i], 0, 1), video_len)
+        for i in range(images.shape[0])
+    ]
     all_images= vutils.make_grid(all_images, 1)
     all_images = images_to_numpy(all_images)
 
     if ground_truth is not None:
-        gts = []
-        for i in range(ground_truth.shape[0]):
-            gts.append(vutils.make_grid(torch.transpose(ground_truth[i], 0,1), video_len))
+        gts = [
+            vutils.make_grid(torch.transpose(ground_truth[i], 0, 1), video_len)
+            for i in range(ground_truth.shape[0])
+        ]
         gts = vutils.make_grid(gts, 1)
         gts = images_to_numpy(gts)
         all_images = np.concatenate([all_images, gts], axis = 1)
@@ -166,20 +167,15 @@ def get_multi_acc(predict, real):
         for j in range(predict.shape[1]):
             if real[i][j] == 1 and predict[i][j]>=0.5 :
                 correct += 1
-    acc = correct / float(np.sum(real))
-    return acc
+    return correct / float(np.sum(real))
 
 
 def save_model(netG, netD_im, netD_st, epoch, model_dir):
     torch.save(
         netG.state_dict(),
         '%s/netG_epoch_%d.pth' % (model_dir, epoch))
-    torch.save(
-        netD_im.state_dict(),
-        '%s/netD_im_epoch_last.pth' % (model_dir))
-    torch.save(
-        netD_st.state_dict(),
-        '%s/netD_st_epoch_last.pth' % (model_dir))
+    torch.save(netD_im.state_dict(), f'{model_dir}/netD_im_epoch_last.pth')
+    torch.save(netD_st.state_dict(), f'{model_dir}/netD_st_epoch_last.pth')
     print('Save G/D models')
 
 
@@ -187,9 +183,7 @@ def mkdir_p(path):
     try:
         os.makedirs(path)
     except OSError as exc:  # Python >2.5
-        if exc.errno == errno.EEXIST and os.path.isdir(path):
-            pass
-        else:
+        if exc.errno != errno.EEXIST or not os.path.isdir(path):
             raise
 
 def save_test_samples(netG, dataloader, save_path):

@@ -6,10 +6,7 @@ from torch.autograd import Variable
 import numpy as np
 import torch.nn.functional as F
 import pdb
-if torch.cuda.is_available():
-    T = torch.cuda
-else:
-    T = torch
+T = torch.cuda if torch.cuda.is_available() else torch
 
 def conv3x3(in_planes, out_planes, stride=1):
     "3x3 convolution with padding"
@@ -19,12 +16,12 @@ def conv3x3(in_planes, out_planes, stride=1):
 
 # Upsale the spatial size by a factor of 2
 def upBlock(in_planes, out_planes):
-    block = nn.Sequential(
+    return nn.Sequential(
         nn.Upsample(scale_factor=2, mode='nearest'),
         conv3x3(in_planes, out_planes),
         nn.BatchNorm2d(out_planes),
-        nn.ReLU(True))
-    return block
+        nn.ReLU(True),
+    )
 
 
 class ResBlock(nn.Module):
@@ -154,9 +151,7 @@ class D_IMG(nn.Module):
         self.get_uncond_logits = None
 
     def forward(self, image):
-        img_embedding = self.encode_img(image)
-
-        return img_embedding
+        return self.encode_img(image)
 
 
 class D_STY(nn.Module):
@@ -284,11 +279,7 @@ class StoryGAN(nn.Module):
 
     def sample_z_motion(self, motion_input, video_len=None):
         video_len = video_len if video_len is not None else self.video_len
-        if video_len > 1:
-            h_t = [motion_input[:,0,:]]
-        else:
-            h_t = [motion_input]
-
+        h_t = [motion_input[:,0,:]] if video_len > 1 else [motion_input]
         for frame_num in range(video_len):
             if len(motion_input.shape) == 2:
                 e_t = self.get_iteration_input(motion_input)
@@ -296,20 +287,19 @@ class StoryGAN(nn.Module):
                 e_t = self.get_iteration_input(motion_input[:,frame_num,:])
             h_t.append(self.recurrent(e_t, h_t[-1]))
         z_m_t = [h_k.view(-1, 1, self.motion_dim) for h_k in h_t]
-        z_motion = torch.cat(z_m_t[1:], dim=1).view(-1, self.motion_dim)
-        return z_motion
+        return torch.cat(z_m_t[1:], dim=1).view(-1, self.motion_dim)
 
     def motion_content_rnn(self, motion_input, content_input):
         video_len = 1 if len(motion_input.shape) == 2 else self.video_len
         h_t = [content_input]
         if len(motion_input.shape) == 2:
             motion_input = motion_input.unsqueeze(1)
-        for frame_num in range(video_len):
-            h_t.append(self.mocornn(motion_input[:,frame_num, :], h_t[-1]))
-        
+        h_t.extend(
+            self.mocornn(motion_input[:, frame_num, :], h_t[-1])
+            for frame_num in range(video_len)
+        )
         c_m_t = [h_k.view(-1, 1, self.content_dim) for h_k in h_t]
-        mocornn_co = torch.cat(c_m_t[1:], dim=1).view(-1, self.content_dim)
-        return mocornn_co
+        return torch.cat(c_m_t[1:], dim=1).view(-1, self.content_dim)
 
     def sample_videos(self, motion_input, content_input):  
         content_mean = content_input.mean(1)

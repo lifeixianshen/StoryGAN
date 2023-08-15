@@ -81,7 +81,7 @@ class GANTrainer(object):
         batch_idx, batch = next(self.imagedataset)
         b = batch
         if cfg.CUDA:
-            for k, v in batch.iteritems():
+            for k, v in b.iteritems():
                 if k == 'text':
                     continue
                 else:
@@ -98,8 +98,8 @@ class GANTrainer(object):
         self.imagedataset = None
         self.testdataset = None
         netG, netD_im, netD_st = self.load_networks()
-       
-        
+
+
         im_real_labels = Variable(torch.FloatTensor(self.imbatch_size).fill_(1))
         im_fake_labels = Variable(torch.FloatTensor(self.imbatch_size).fill_(0))
         st_real_labels = Variable(torch.FloatTensor(self.stbatch_size).fill_(1))
@@ -113,17 +113,14 @@ class GANTrainer(object):
 
         lr_decay_step = cfg.TRAIN.LR_DECAY_EPOCH
         im_optimizerD = \
-            optim.Adam(netD_im.parameters(),
+                optim.Adam(netD_im.parameters(),
                        lr=cfg.TRAIN.DISCRIMINATOR_LR, betas=(0.5, 0.999))
 
         st_optimizerD = \
-            optim.Adam(netD_st.parameters(),
+                optim.Adam(netD_st.parameters(),
                        lr=cfg.TRAIN.DISCRIMINATOR_LR, betas=(0.5, 0.999))
 
-        netG_para = []
-        for p in netG.parameters():
-            if p.requires_grad:
-                netG_para.append(p)
+        netG_para = [p for p in netG.parameters() if p.requires_grad]
         optimizerG = optim.Adam(netG_para, lr=cfg.TRAIN.GENERATOR_LR,
                                 betas=(0.5, 0.999))
 
@@ -177,36 +174,36 @@ class GANTrainer(object):
                 #######################################################
                 # (2) Generate fake stories and images
                 ######################################################
-               
+
                 im_inputs = (im_motion_input, im_content_input)
                 _, im_fake, im_mu, im_logvar = \
-                    nn.parallel.data_parallel(netG.sample_images, im_inputs, self.gpus)
+                        nn.parallel.data_parallel(netG.sample_images, im_inputs, self.gpus)
 
                 st_inputs = (st_motion_input, st_content_input)
                 _, st_fake, c_mu, c_logvar, m_mu, m_logvar = \
-                    nn.parallel.data_parallel(netG.sample_videos, st_inputs, self.gpus)
-               
+                        nn.parallel.data_parallel(netG.sample_videos, st_inputs, self.gpus)
+
 
                 ############################
                 # (3) Update D network
                 ###########################
                 netD_im.zero_grad()
                 netD_st.zero_grad()
-              
+
                 im_errD, im_errD_real, im_errD_wrong, im_errD_fake, accD = \
-                    compute_discriminator_loss(netD_im, im_real_imgs, im_fake,
+                        compute_discriminator_loss(netD_im, im_real_imgs, im_fake,
                                                im_real_labels, im_fake_labels, im_catelabel, 
                                                im_mu, self.gpus)
 
                 st_errD, st_errD_real, st_errD_wrong, st_errD_fake, _ = \
-                    compute_discriminator_loss(netD_st, st_real_imgs, st_fake,
+                        compute_discriminator_loss(netD_st, st_real_imgs, st_fake,
                                                st_real_labels, st_fake_labels, st_catelabel, 
                                                c_mu, self.gpus)
 
 
                 im_errD.backward()
                 st_errD.backward()
-               
+
                 im_optimizerD.step()
                 st_optimizerD.step()
 
@@ -214,7 +211,7 @@ class GANTrainer(object):
                 ############################
                 # (2) Update G network
                 ###########################
-                for g_iter in range(2):
+                for _ in range(2):
                     netG.zero_grad()
 
                     _, st_fake, c_mu, c_logvar, m_mu, m_logvar = netG.sample_videos(

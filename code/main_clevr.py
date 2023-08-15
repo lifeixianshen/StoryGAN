@@ -32,8 +32,7 @@ def parse_args():
     parser.add_argument('--gpu',  dest='gpu_id', type=str, default='0')
     parser.add_argument('--data_dir', dest='data_dir', type=str, default='')
     parser.add_argument('--manualSeed', type=int, help='manual seed')
-    args = parser.parse_args()
-    return args
+    return parser.parse_args()
 
 if __name__ == "__main__":
     args = parse_args()
@@ -68,10 +67,7 @@ if __name__ == "__main__":
         transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
 
     def video_transform(video, image_transform):
-        vid = []
-        for im in video:
-            vid.append(image_transform(im))
-
+        vid = [image_transform(im) for im in video]
         vid = torch.stack(vid).permute(1, 0, 2, 3)
 
         return vid
